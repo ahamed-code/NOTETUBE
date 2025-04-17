@@ -1,0 +1,7 @@
+streamlit
+transformers
+torch
+whisper
+yt-dlp
+python-docx
+fpdf
