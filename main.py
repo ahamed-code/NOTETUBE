@@ -1,24 +1,27 @@
 import streamlit as st
 import re
 import os
-import whisper
 import yt_dlp
+import requests
 from transformers import pipeline
 from docx import Document
 from fpdf import FPDF
+import time
 
-# Function to save content as a TXT file
+
+ASSEMBLYAI_API_KEY = st.secrets["b0d66bcb26e3466c97c04529399cb963"]
+HEADERS = {"authorization": ASSEMBLYAI_API_KEY}
+
+
 def save_as_txt(content, file_name):
     with open(file_name, "w", encoding="utf-8") as f:
         f.write(content)
 
-# Function to save content as a Word file
 def save_as_word(content, file_name):
     doc = Document()
     doc.add_paragraph(content)
     doc.save(file_name)
 
-# Function to save content as a PDF file
 def save_as_pdf(content, file_name):
     pdf = FPDF()
     pdf.add_page()
@@ -26,23 +29,19 @@ def save_as_pdf(content, file_name):
     pdf.multi_cell(0, 10, content)
     pdf.output(file_name)
 
-# Function to extract video ID
 def get_video_id(url):
     match = re.search(r"(?:v=|\/|youtu\.be\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
-# Function to download YouTube audio using yt-dlp
 def download_audio(video_url):
-    audio_path = "audio.mp4"  # Save as MP4
-
+    audio_path = "audio.mp3"
     try:
         st.info("🔄 Attempting to download audio from YouTube...")
         ydl_opts = {
-            'format': 'bestaudio/best',  # Best audio quality
-            'outtmpl': audio_path,       # Save location for audio
-            'quiet': True                # Avoid verbose output
+            'format': 'bestaudio/best',
+            'outtmpl': audio_path,
+            'quiet': True
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
 
@@ -52,74 +51,78 @@ def download_audio(video_url):
         else:
             st.error("❌ Audio file was not created.")
             return None
-
     except Exception as e:
         st.error(f"❌ Error downloading audio: {str(e)}")
         return None
 
-# Function to transcribe audio using Whisper AI
-def transcribe_audio(file_path):
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"The file {file_path} does not exist.")
 
-    st.info("📝 Transcribing audio to text...")
-    model = whisper.load_model("base")
-    result = model.transcribe(file_path)
-    return result["text"]
+def upload_audio(file_path):
+    """Upload audio file to AssemblyAI"""
+    st.info("📤 Uploading audio to AssemblyAI...")
+    with open(file_path, "rb") as f:
+        response = requests.post("https://api.assemblyai.com/v2/upload", headers=HEADERS, data=f)
+    audio_url = response.json()["upload_url"]
+    st.success("✅ Upload complete!")
+    return audio_url
 
-# Function to classify transcript into notes with subtopics and paragraphs
-def classify_notes(transcript):
-    try:
-        # Truncate the transcript if it's too long
-        max_input_length = 1024  # Adjust based on the model's max input size
-        truncated_transcript = transcript[:max_input_length]
+def transcribe_and_summarize(audio_url):
+    """Request AssemblyAI for transcription + summarization"""
+    st.info("📝 Sending request to AssemblyAI for transcription & notes...")
 
-        # Use a summarization pipeline from Hugging Face
-        st.info("📝 Organizing notes using Hugging Face model...")
-        summarizer = pipeline("summarization", model="facebook/bart-large-cnn", device=-1)  # Use CPU
-        summary = summarizer(truncated_transcript, max_length=200, min_length=50, do_sample=False)
-        return summary[0]["summary_text"]
-    except Exception as e:
-        return f"⚠️ Error generating notes: {str(e)}"
+    endpoint = "https://api.assemblyai.com/v2/transcript"
+    json_data = {
+        "audio_url": audio_url,
+        "summarization": True,
+        "summary_model": "informative",
+        "summary_type": "bullets"  
+    }
+    response = requests.post(endpoint, json=json_data, headers=HEADERS)
+    transcript_id = response.json()["id"]
+ 
+    status = "queued"
+    while status not in ["completed", "error"]:
+        poll = requests.get(endpoint + "/" + transcript_id, headers=HEADERS).json()
+        status = poll["status"]
+        if status == "completed":
+            return poll["text"], poll["summary"]
+        elif status == "error":
+            raise Exception(poll["error"])
+        time.sleep(5)
 
-# Streamlit UI
+ 
 st.set_page_config(page_title="YouTube Video Transcriber", layout="centered")
-st.title("🎙️NOTETUBE")
+st.title("🎙️ NOTETUBE (AI Powered by AssemblyAI)")
 st.write("Convert any YouTube video audio into text and organize it into structured notes.")
 st.write("symbol of productivity")
-# Initialize session state for storing data
+
+# Initialize session state
 if "transcript_text" not in st.session_state:
     st.session_state.transcript_text = None
 if "notes" not in st.session_state:
     st.session_state.notes = None
 
-# Input for YouTube URL
+ 
 video_url = st.text_input("Enter YouTube Video URL", placeholder="Paste YouTube link here...")
 
-# Transcribe button
+ 
 if st.button("Transcribe & Organize Notes"):
     video_id = get_video_id(video_url)
-
     if not video_id:
         st.error("⚠️ Invalid YouTube URL. Please check the link.")
     else:
         st.info("🎵 Downloading audio from video...")
         audio_path = download_audio(video_url)
-
         if audio_path:
-            st.success("✅ Audio downloaded! Transcribing...")
+            st.success("✅ Audio downloaded!")
             try:
-                transcript_text = transcribe_audio(audio_path)
+                audio_url = upload_audio(audio_path)
+                transcript_text, notes = transcribe_and_summarize(audio_url)
 
-                if transcript_text:
-                    st.session_state.transcript_text = transcript_text  # Save transcript in session state
-                    st.success("✅ Transcription complete! Organizing notes...")
-                    notes = classify_notes(transcript_text)
-                    st.session_state.notes = notes  # Save notes in session state
+                st.session_state.transcript_text = transcript_text
+                st.session_state.notes = "\n".join(notes) if isinstance(notes, list) else notes
 
-                else:
-                    st.error("❌ Failed to transcribe the audio.")
-            except FileNotFoundError as e:
+                st.success("✅ Transcription & Notes generated successfully!")
+            except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
         else:
             st.error("❌ Failed to download audio.")
@@ -133,10 +136,9 @@ if st.session_state.notes:
     st.subheader("📝 Organized Notes:")
     st.text_area("Notes", st.session_state.notes, height=300)
 
-    # Dropdown for download format
+     
     download_format = st.selectbox("Choose download format:", ["TXT", "Word", "PDF"])
-
-    # Save and download Notes
+ 
     notes_file_name = f"organized_notes.{download_format.lower()}"
     if download_format == "TXT":
         save_as_txt(st.session_state.notes, notes_file_name)
