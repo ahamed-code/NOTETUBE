@@ -66,8 +66,8 @@ def upload_audio(file_path):
     return audio_url
 
 def transcribe_and_summarize(audio_url):
-    """Request AssemblyAI for transcription + summarization"""
-    st.info("📝 Sending request to AssemblyAI for transcription & notes...")
+    """Request  AI for transcription + summarization"""
+    st.info("📝 Sending request to  AI for transcription & notes...")
 
     endpoint = "https://api.assemblyai.com/v2/transcript"
     json_data = {
@@ -91,7 +91,7 @@ def transcribe_and_summarize(audio_url):
 
  
 st.set_page_config(page_title="YouTube Video Transcriber", layout="centered")
-st.title("🎙️ NOTETUBE (AI Powered by AssemblyAI)")
+st.title("🎙️ NOTETUBE ")
 st.write("Convert any YouTube video audio into text and organize it into structured notes.")
 st.write("symbol of productivity")
 
