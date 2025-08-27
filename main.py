@@ -9,7 +9,7 @@ from fpdf import FPDF
 import time
 
 
-ASSEMBLYAI_API_KEY = st.secrets["b0d66bcb26e3466c97c04529399cb963"]
+ASSEMBLYAI_API_KEY = st.secrets["ASSEMBLYAI_API_KEY"]
 HEADERS = {"authorization": ASSEMBLYAI_API_KEY}
 
 
@@ -171,3 +171,4 @@ if st.session_state.notes:
             file_name=transcript_file_name,
             mime="application/octet-stream"
         )
+
